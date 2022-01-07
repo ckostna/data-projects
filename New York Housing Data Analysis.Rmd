@@ -1,0 +1,477 @@
+---
+title: "Housing Data Analysis"
+author: "Group 11"
+date: "16/04/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+Recently, more and more people have started to buy houses instead of renting. However, with the rapid development of the network, people can also look for homes online. There are many websites created to sell the houses, and the web page will include various details of the house--for example, the number of bathrooms and bedrooms, living area, etc. Thus, we will analyze a website called “Homes.com” and analyze how the houses have changed, by comparing them to houses from 2006. We will conclude by comparing various aspects of the houses.
+
+# Dataset Description
+```{r, echo=FALSE}
+original_data <- read.csv("housingdata.csv")
+sample_web_data <- read.csv("webdata.csv")
+x <- c(1:1057)
+original_data$num <- x
+sample_web_data$num <- x
+```
+Our main dataset (labeled "Original") is a sample of houses in Saratoga, New York from 2006. There are 1057 houses with the following information: price, living area (in square feet), number of bathrooms, number of bedrooms, number of fireplaces, lot size (in acres), age of house (in years), and whether or not the house has a fireplace (true/false value). 
+
+# Web Scraping Description
+Firstly, we scraped the listings of houses on one page of the realtor website. We collected the price, number of bedrooms, number of bedrooms, square footage (living space), whether or not the property had a fireplace, the lot size, and finally the year the house was built (so we could calculate the age). Of course, when scraping each component, we had to do some cleaning up. Next, we took all of these functions and ran them in a for loop to scrape all 106 pages of listings. This would give us a data frame of 1800 listings with all of the information we wanted. In our original dataset, we had 1057 houses. To perform a fair analysis, we decided to take a random sample of 1057 from the 1800 we extracted. Shoutout to the internet for finding a convenient function (sample_n()) that creates a new dataset by taking a random sample of size from the dataset web_data. 
+
+# Methods
+We are going to use means, average change, linear regression, and correlation to investigate how amenities have changed and how they may influence one another. 
+
+# Analysis of Data
+```{r, echo=FALSE, message=FALSE}
+# load any packages
+library(viridis)
+library(tidyverse)
+library(corrplot)
+```
+
+Firstly, we'll investigate the average Price for each house in both datasets.
+```{r, echo=FALSE, fig.align='center'}
+# average price
+par(mfrow=c(1,2))
+plot(original_data$num, original_data$Price, ylim = c(0, 4000000), xlab = "Observation Number",
+     ylab = "Price of House (Original)", main = "Price For Each House")
+abline(h = mean(original_data$Price), col = "purple") 
+plot(sample_web_data$num, sample_web_data$price, ylim = c(0, 4000000), xlab = "Observation Number",
+     ylab = "Price of House (Sample)", main = "Price For Each House")
+abline(h = mean(sample_web_data$price), col = "pink")
+```
+We can see that in our Original Dataset, the Price of each house are all contained in a small range with no outliers. In our Sample Dataset, the Price of each house is more spread out with multiple outliers. The average Price of the houses didn't increase by much between our Original Data and Sample Data.
+
+\newpage
+Secondly, we'll investigate the average Living Area for each house in both datasets.
+```{r, echo=FALSE, fig.align='center'}
+# average price per square foot
+par(mfrow=c(1,2))
+plot(original_data$num, original_data$Living.Area, ylim = c(0, 16000), xlab = "Observation Number",
+     ylab = "Living Area of House (Original)", main = "Living Area For Each House")
+abline(h = mean(original_data$Living.Area), col = "purple")
+plot(sample_web_data$num, sample_web_data$Living.Area, ylim = c(0, 16000), xlab = "Observation Number",
+     ylab = "Living Area of House (Sample)", main = "Living Area For Each House")
+abline(h = mean(sample_web_data$Living.Area, na.rm = TRUE), col = "pink")
+```
+From the above graph, the coloured line represents the mean of Living Area in each house, and by comparing these two graphs the Living Area for each house in the Sample Data is higher than in the Original Data. 
+
+\newpage
+Now, we'll compare the Living Area to Lot Size for both datasets.
+```{r, echo=FALSE, fig.align='center'}
+par(mfrow=c(1,2))
+# Original Dataset
+plot(original_data$Living.Area, original_data$Lot.Size, ylim = c(0, 10), xlab = "Living Area (sqft)",
+     ylab = "Lot Size (acres)", main = "Living Area by Lot Size (Original)")   
+abline(h = mean(original_data$Lot.Size, na.rm = TRUE), col = "purple")
+abline(v = mean(original_data$Living.Area), col = "purple")
+# Web Dataset
+plot(sample_web_data$Living.Area, sample_web_data$lotSize, ylim = c(0, 100), xlab = "Living Area (sqft)",
+     ylab = "Lot Size (acres)", main = "Living Area by Lot Size (Sample)")   
+abline(h = mean(sample_web_data$lotSize, na.rm = TRUE), col = "pink")
+abline(v = mean(sample_web_data$Living.Area, na.rm = TRUE), col = "pink")
+```
+In the above graphs, the coloured lines represent the mean of each variable. By comparing the mean of Lot Size in the Original Data and now, the mean Lot Size in the Sample Data is higher than the mean in the Original set, and the mean of living area in the Sample Data is higher than the mean in the Original Data. We can conclude that as the Lot Size increases, the Living Area will also increase. 
+
+\newpage
+Thirdly, we'll investigate the number of houses in both datasets that have at least one fireplace.
+```{r, echo=FALSE, fig.align='center'}
+sample_web_data$firePlace <- str_replace_all(sample_web_data$firePlace,
+                                             c("no" = "FALSE", "yes" = "TRUE", "Not Provided" = NA))
+sample_web_data$firePlace <- as.logical(sample_web_data$firePlace)
+samp_freq <- as.data.frame(table(sample_web_data$firePlace))
+orig_freq <- as.data.frame(table(original_data$Fireplace))
+orig_num_true <- orig_freq[2,2]
+orig_num_false <- orig_freq[1,2]
+samp_num_true <- samp_freq[2,2]
+samp_num_false <- samp_freq[1,2]
+logicals <- matrix(c(orig_num_false, orig_num_true, samp_num_false, samp_num_true), nrow = 2)
+rownames(logicals) <- c("False", "True")
+colnames(logicals) <- c("Data", "Web data")
+barplot(logicals, col = viridis(2), border = "white", beside = T, legend = rownames(logicals), args.legend = list(x="bottomright", inset=c(-0.05, 0)), xlab = "Dataset", main = "Number of Houses with at least one Fireplace")
+```
+We can see that more houses in our Original data have a Fireplace, than the ones in our Sample data. While we cannot conclude for sure, we can speculate that older houses are more likely to have a Fireplace than newer ones.
+
+\ 
+\  
+Fourth, we'll investigate the average age of the houses in both datasets.
+Average age of houses in Original Dataset:
+```{r, echo=FALSE}
+(avg_age <- mean(original_data$Age))
+```
+Average age of houses in Sample Dataset:
+```{r, echo=FALSE}
+(avg_web_age <- mean(sample_web_data$age, na.rm = TRUE))
+```
+By comparing the average Age, we can see that the average Age of the house is increasing. There are new houses in the market, but there are also old houses in the market so that the average Age of houses now, will be older than the houses in the Original Data.
+\newpage
+Fifth, we'll investigate how Price is influence by Living Area, the number of Bathrooms, the number of Bedrooms, the Lot Size, and the Age of the house.
+
+Below is a linear regression analysis of the Original Data.
+```{r, echo=FALSE}
+(fit1 <- lm(Price ~ Living.Area + Bathrooms + Bedrooms + Lot.Size + Age, original_data))  
+```
+The intercept is Price, and 15107.57 is the predicted value of price if every other variable was zero. The value for Living Area, 76.96, is the predicted difference in Price for each square foot difference in Living Area (with all other variables constant). The value for Bathrooms, 19784.16, is the predicted difference in Price for each one-unit difference in the number of Bathrooms (with all other variables constant). The value for Bedrooms, -6743.50, is the predicted difference for each one unit difference in the number of Bedrooms (with all other variables constant). The value for Lot Size, 776.05, is the predicted difference in Price for each acre difference in the Lot Size (with all other variables constant). Lastly, the value for Age, -160.55, is the predicted difference in Price for each year difference in Age (with all other variables constant). 
+
+```{r, echo=FALSE}
+confint(fit1)
+```
+The only interval that contains 0 is the one for Lot Size, so we can conclude there is no significant evidence of a linear relationship between Price and Lot Size. 
+
+
+Below is a linear regression analysis of the Sample Web Data.
+```{r, echo=FALSE}
+(fit2 <- lm(price ~ Living.Area + Bathrooms + Bedrooms + lotSize + age, sample_web_data))
+```
+The intercept is Price, and -86470 is the predicted value of Price if every other variable was zero. The value for Living Area, 548, is the predicted difference in Price for each square foot difference in Living Area (with all other variables constant). The value for Bathrooms, -21340, is the predicted difference in Price for each one-unit difference in the number of Bathrooms (with all other variables constant). The value for Bedrooms, -192300, is the predicted difference for each one unit difference in the number of Bedrooms (with all other variables constant). The value for Lot Size, -0.08592, is the predicted difference in Price for each acre difference in the Lot Size (with all other variables constant). Lastly, the value for Age, 422.7, is the predicted difference in Price for each year difference in Age (with all other variables constant).
+
+```{r, echo=FALSE}
+confint(fit2)
+```
+There are four intervals that contain 0, so we can conclude there is no significant evidence of a linear relationship between Price and itself, Price and Bathrooms, Price and Lot Size, and Price and Age. 
+
+
+Now, we want to see how Price, Living Area, Lot Size, and Age are related to one another, so, we'll look at their correlation for both sets of data.
+
+Correlation for original data:
+```{r, echo=FALSE, fig.align='center'}
+original_data_cor <- original_data[, c(1,2,6,7)]
+(orig_cor <- cor(original_data_cor, use = "complete.obs"))
+corrplot(orig_cor, method = "circle", col = magma(10))
+```
+The strongest positive linear relationship is between Price and Living Area with a value of 0.761. Thus, we can say that as Price increases, so does the Living Area (and vice-versa), which makes sense. All of the other linear relationships are weak (whether it's positive or negative) with values close to 0, so we cannot draw any further conclusions. 
+
+
+Correlation for sample data:
+```{r, echo=FALSE, fig.align='center'}
+sample_web_data_cor <- sample_web_data[, c(1,4,6,8)]
+(samp_cor <- cor(sample_web_data_cor, use = "complete.obs"))
+corrplot(samp_cor, method = "circle", col = magma(10))
+```
+The strongest positive linear relationship is between Price and Living Area with a value of 0.859. Thus, we can say that as Price increases, so does the Living Area (and vice-versa), which makes sense. All of the other linear relationships are weak (whether it's positive or negative) with values close to 0, so we cannot draw any further conclusions. 
+\newpage
+Lastly, we'll construct a model to try to predict the Price of a house from our Sample Web Data.
+```{r, echo=FALSE}
+#split the data into a training set and a testing set.
+set.seed(2017)
+split <- sample(seq_len(nrow(sample_web_data)), size = floor(0.75 * nrow(sample_web_data)))
+train <- sample_web_data[split, ]
+test <- sample_web_data[-split, ]
+```
+The training set contains 396 observations and 8 variables. We will hypothesize the following subset of the variables as potential predictors.
+
+ Price - Property's sale price in dollars (this is the target variable that we'll trying to predict)
+ Bedroom - Number of bedrooms
+ LivingArea - Living area square feet
+ Bathroom - Number of bathrooms
+```{r, echo=FALSE}
+# Construct a new data frame consisting solely of these variables.
+train <- subset(train, select=c(price, Bedrooms, Bathrooms, Living.Area))
+head(train)
+# report variables with missing values
+sapply(train, function(x) sum(is.na(x)))
+```
+
+Summary Statistics:
+```{r,echo=FALSE}
+summary(train)
+```
+
+Fit the linear model:
+```{r, echo=FALSE}
+fit <-  lm(price ~ Bedrooms + Bathrooms + Living.Area, data=train)
+summary(fit)
+```
+R-squared of 0.5571 tells us that approximately 55.71% of variation in sale price can be explained by the model. F-statistics and p-value show the overall significance test of my model.Residual standard error gives an idea on how far observed sale price are from the predicted or fitted sales price. Intercept is the estimated sale price for a house with all the other variables at zero. It does not provide any meaningful interpretation. 
+
+Create a confidence interval for the model coefficients, and then check the diagnostic plots:
+```{r, echo=FALSE}
+confint(fit, conf.level=0.95)
+par(mfrow=c(2,2))
+plot(fit)
+```
+The distribution of residuals around the linear model in relation to the price. Most of the houses in the data in the lower and median price range, the higher price, the less observations. 
+
+To test the prediction model, we'll look at the first few values of prediction and compare it to the values of price in the test data set.
+```{r, echo=FALSE}
+test <- subset(test, select=c(price, Bedrooms, Bathrooms, Living.Area))
+prediction <- predict(fit, newdata = test)
+head(prediction)
+head(test$price)
+```
+
+At last, calculate the value of R-squared for the prediction model on the test data set. 
+In general, R-squared is the metric for evaluating the goodness of fit of our model. Higher is better with 1 being the best.
+```{r, echo=FALSE}
+SSE <- sum((test$price - prediction) ^ 2, na.rm = TRUE)
+SST <- sum((test$price - mean(test$price)) ^ 2, na.rm = TRUE)
+1 - SSE/SST
+```
+
+\newpage
+# Public Knowledge
+We Tweeted about our results of our analysis, so check it out here!
+https://twitter.com/f1yingh3ap/status/1383105354502840321
+
+# Conclusions
+In our data analysis, we compared the houses on the market today (Sample Web Data) with the houses on the market in 2006 (Original Data). First of all, we found that the factor affecting the price of most of the houses was the Lot Size. As the Lot Size increased, the price also increased. The other amenities may also have a slight effect on the Price, but we didn't find any result. Secondly, by comparing the house's average Age, we found that the houses now are older than the houses in 2006. We also found that as the Lot Size increased, the Living Area also increased. We also conclude that the Living Area in the houses in the Sample Data, is also larger than the Living Area in our Original Data.
+
+One of the limitations we found is that since our Sample Web Data is from a commercial house selling website, they just want to sell the house, so they are probably going to hide some information that is not beneficial for selling. For example, the Age of the house was missing from most properties. If people are doing this analysis again, it would be better to try to pull the data from a website with more details. Moreover, our data is from a sample, so the results might not be accurate enough to apply to all houses in Saratoga, New York. 
+
+\newpage
+# Appendix
+Website we got our Original Data from: https://dasl.datadescription.com/datafile/housing-prices/?_sfm_methods=Correlation&_sfm_cases=500+59943
+
+Website we scraped from: https://www.homes.com/saratoga-county-ny/homes-for-sale/
+
+Web Scraping Code:
+```{r, eval=FALSE}
+library(rvest)
+library(tidyverse)
+library(purrr)
+library(tidytext)
+library(dplyr)
+# https://www.homes.com/saratoga-county-ny/homes-for-sale/p2/
+
+# There are all in all 106 page with about 17 homes per page. 
+urls <- sapply(1:106, function(x) {
+  url1 <- "https://www.homes.com/saratoga-county-ny/homes-for-sale/p"
+  paste0(url1, x)
+})
+df_all <- data.frame()
+
+for (i in 1:(length(urls))) {
+  listings_url <- read_html(urls[[i]]) %>%
+    html_elements("a.no-underline") %>%
+    html_attr("href") %>%
+    str_subset("id")
+  url <- "https://www.homes.com"
+  full_urls <-  data.frame(paste0(url, listings_url))
+  df_all <- rbind(df_all, full_urls)
+}
+
+# change column name
+colnames(df_all)[1] <- "link"
+
+# converting links stored in a data.frame() as factors to character type stored in a vector df
+links <- sapply(df_all$link, as.character)
+# initalize empty data frame where we will be storing our scraped data
+df_all_data <- data.frame()
+
+# write our scraper function
+house_scraper <- function(links) {
+  # save link in url object
+  url <- links
+  # url <- "https://www.homes.com/property/1164-n-creek-rd-porter-corners-ny-12859/id-400038007251/"
+  # parse page url
+  page <- xml2::read_html(url)
+  Sys.sleep(0.25)
+  
+  house_price <-  page %>%
+    html_nodes("div") %>%
+    html_nodes(xpath = '//*[@class="summary-price-display mr-1 font-family-title font-size-xxl 
+               whitespace-no-wrap"]') %>%
+    html_text() %>%
+    trimws() %>%
+    str_replace_all(c("\\$" = "", "\\+" = "", "," = "")) %>%
+    str_remove_all(" ")
+  
+  house_price
+  
+  details_1 <- page %>%
+    html_nodes("div") %>%
+    html_nodes(xpath = '//*[@class="property-details mb-1/2"]') %>%
+    html_text() %>%
+    str_replace_all(c("Baths" = ";", "Bath" = ";", "Beds" = ";", "Bed" = ";", "," = "", "--" = "NA",
+                      "Sqft" = "")) %>%
+    str_remove_all(" ") %>%
+    tibble() %>%
+    separate(col = 1, into = c("Bedrooms", "Bathrooms", "Living Area"), sep = ";")
+  
+  fire_place <- read_html(url) %>%
+    html_nodes("ul") %>%
+    html_nodes(xpath = '//*[@class = "home-details-list"]/li') %>%
+    html_text() %>%
+    str_subset("^(Fire)") # need to output to data frame
+  fire_place <- sub(".*:", "", fire_place) %>% trimws()
+  
+  lot_size <- read_html(url) %>%
+    html_nodes("ul") %>%
+    html_nodes(xpath = '//*[@class = "home-details-list"]/li') %>%
+    html_text() %>%
+    str_subset("^(Lot size)")  # need to output to data frame
+  lot_size <- sub(".*:", "", lot_size) %>% trimws()
+  
+  year_built <- read_html(url) %>%
+    html_nodes("ul") %>%
+    html_nodes(xpath = '//*[@class = "home-details-list"]/li') %>%
+    html_text() %>%
+    str_subset("^(Year)")  # need to output to data frame
+  year_built <- sub(".*:", "", year_built) %>% trimws()
+  
+  # storing individual links in df_individual_page object
+  df_individual_page <- data.frame(
+    price = house_price,
+    bedrooms = details_1["Bedrooms"],
+    bathrooms = details_1["Bathrooms"],
+    squares = details_1["Living Area"],
+    firePlace = fire_place,
+    lotSize = lot_size,
+    yearBuilt = year_built
+  )
+  
+  # rbinding df_all_data and df_individual_page
+  # <<- makes df_all_data a global variable. Making it available in the global environment
+  df_all_data <<- rbind(df_all_data, df_individual_page)
+}
+# looping over all links in the vector and applying scraper function to each link
+sapply(links, house_scraper)
+
+## Seperate links in order to avoiding any connection error
+# link1 <- links[1:400]
+# sapply(link1, house_scraper)
+# link2 <- links[401:800]
+# sapply(link2, house_scraper)
+# link3 <- links[801:1200]
+# sapply(link3, house_scraper)
+# link4 <- links[1201:1600]
+# sapply(link4, house_scraper)
+# link5 <- links[1601:1802]
+# sapply(link5, house_scraper)
+
+## clear dataframe
+# df_all_data <- df_all_data[0,]
+# df_all <- df_all[0,]
+
+write.csv(df_all_data,"E:\\02 Winter 2021 Term\\SCI 2000\\Final Project\\house_2021.csv",
+          row.names = FALSE)
+```
+
+Analysis Code:
+```{r, eval = FALSE}
+# Dataset Description
+original_data <- read.csv("housingdata.csv")
+sample_web_data <- read.csv("webdata.csv")
+x <- c(1:1057)
+original_data$num <- x
+sample_web_data$num <- x
+
+# load any packages
+library(viridis)
+library(tidyverse)
+library(corrplot)
+
+# average price
+par(mfrow=c(1,2))
+plot(original_data$num, original_data$Price, ylim = c(0, 4000000), xlab = "Observation Number",
+     ylab = "Price of House (Original)", main = "Price For Each House")
+abline(h = mean(original_data$Price), col = "purple") 
+plot(sample_web_data$num, sample_web_data$price, ylim = c(0, 4000000), xlab = "Observation Number",
+     ylab = "Price of House (Sample)", main = "Price For Each House")
+abline(h = mean(sample_web_data$price), col = "pink")
+
+# average price per square foot
+plot(original_data$num, original_data$Living.Area, ylim = c(0, 16000), xlab = "Observation Number",
+     ylab = "Living Area of House (Original)", main = "Living Area For Each House")
+abline(h = mean(original_data$Living.Area), col = "purple")
+plot(sample_web_data$num, sample_web_data$Living.Area, ylim = c(0, 16000), xlab = "Observation Number",
+     ylab = "Living Area of House (Sample)", main = "Living Area For Each House")
+abline(h = mean(sample_web_data$Living.Area, na.rm = TRUE), col = "pink")
+
+# Original Dataset
+plot(original_data$Living.Area, original_data$Lot.Size, ylim = c(0, 10), xlab = "Living Area (sqft)",
+     ylab = "Lot Size (acres)", main = "Living Area by Lot Size (Original)")   
+abline(h = mean(original_data$Lot.Size, na.rm = TRUE), col = "purple")
+abline(v = mean(original_data$Living.Area), col = "purple")
+# Web Dataset
+plot(sample_web_data$Living.Area, sample_web_data$lotSize, ylim = c(0, 100), xlab = "Living Area (sqft)",
+     ylab = "Lot Size (acres)", main = "Living Area by Lot Size (Sample)")   
+abline(h = mean(sample_web_data$lotSize, na.rm = TRUE), col = "pink")
+abline(v = mean(sample_web_data$Living.Area, na.rm = TRUE), col = "pink")
+
+# Fireplace
+sample_web_data$firePlace <- str_replace_all(sample_web_data$firePlace,
+                                             c("no" = "FALSE", "yes" = "TRUE", "Not Provided" = NA))
+sample_web_data$firePlace <- as.logical(sample_web_data$firePlace)
+samp_freq <- as.data.frame(table(sample_web_data$firePlace))
+orig_freq <- as.data.frame(table(original_data$Fireplace))
+orig_num_true <- orig_freq[2,2]
+orig_num_false <- orig_freq[1,2]
+samp_num_true <- samp_freq[2,2]
+samp_num_false <- samp_freq[1,2]
+logicals <- matrix(c(orig_num_false, orig_num_true, samp_num_false, samp_num_true), nrow = 2)
+rownames(logicals) <- c("False", "True")
+colnames(logicals) <- c("Data", "Web data")
+barplot(logicals, col = viridis(2), border = "white", beside = T, legend = rownames(logicals),
+        args.legend = list(x="bottomright", inset=c(-0.05, 0)), xlab = "Dataset",
+        main = "Number of Houses with at least one Fireplace")
+
+# Average Age
+(avg_age <- mean(original_data$Age))
+(avg_web_age <- mean(sample_web_data$age, na.rm = TRUE))
+
+# Linear Regression for Original Data
+(fit1 <- lm(Price ~ Living.Area + Bathrooms + Bedrooms + Lot.Size + Age, original_data))  
+confint(fit1)
+# Linear Regression for Sample Data
+(fit2 <- lm(price ~ Living.Area + Bathrooms + Bedrooms + lotSize + age, sample_web_data))
+confint(fit2)
+
+# Correlation for Original Data
+original_data_cor <- original_data[, c(1,2,6,7)]
+(orig_cor <- cor(original_data_cor, use = "complete.obs"))
+corrplot(orig_cor, method = "circle", col = magma(10))
+
+# Correlation for Sample Data
+sample_web_data_cor <- sample_web_data[, c(1,4,6,8)]
+(samp_cor <- cor(sample_web_data_cor, use = "complete.obs"))
+corrplot(samp_cor, method = "circle", col = magma(10))
+
+# Linear Regression for Original Data
+(fit1 <- lm(Price ~ Living.Area + Bathrooms + Bedrooms + Lot.Size + Age, original_data))  
+confint(fit1)
+# Linear Regression for Sample Data
+(fit2 <- lm(price ~ Living.Area + Bathrooms + Bedrooms + lotSize + age, sample_web_data))
+confint(fit2)
+
+#split the data into a training set and a testing set.
+set.seed(2017)
+split <- sample(seq_len(nrow(sample_web_data)), size = floor(0.75 * nrow(sample_web_data)))
+train <- sample_web_data[split, ]
+test <- sample_web_data[-split, ]
+
+# Construct a new data frame consisting solely of these variables.
+train <- subset(train, select=c(price, Bedrooms, Bathrooms, Living.Area))
+head(train)
+# Report variables with missing values
+sapply(train, function(x) sum(is.na(x)))
+
+summary(train)
+
+# Linear regression model
+fit <-  lm(price ~ Bedrooms + Bathrooms + Living.Area, data=train)
+summary(fit)
+
+# Confidence interval and plots
+confint(fit, conf.level=0.95)
+par(mfrow=c(2,2))
+plot(fit)
+
+# Compare values of prediction
+test <- subset(test, select=c(price, Bedrooms, Bathrooms, Living.Area))
+prediction <- predict(fit, newdata = test)
+head(prediction)
+head(test$price)
+
+# Calculate R-Squared for prediction
+SSE <- sum((test$price - prediction) ^ 2, na.rm = TRUE)
+SST <- sum((test$price - mean(test$price)) ^ 2, na.rm = TRUE)
+1 - SSE/SST
+```
