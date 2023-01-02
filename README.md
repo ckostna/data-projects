@@ -9,3 +9,7 @@ This repository includes the following files:
       - This analysis was performed in a second year course to utilize our R skills
       - My partner and I chose to analyze how destructive deforestation (specifically in Brazil) has been, and what the main causes are
       - We used summary statistics, rankings, multiple visualization techinques, linear regression, and correlation
+ 3) ML Binary Image Classification (Jupyter Notebook)
+      - This machine learning project was performed in a third year course to utilize our Python and model construction skills
+      - My partner and I chose to find the most effective model that would correctly identify the class of an image (either dark chocolate or white chocolate)
+      - We defined functions, used built-in models, created a convolutional neural network, and tweaked our models by finding optimal hyper-parameters
