@@ -1,0 +1,530 @@
+---
+title: 
+#author: "Caitlin Kostna"
+#date: "2023-04-13"
+geometry: margin = 1.5cm
+header-includes:
+ \usepackage{float}
+ \usepackage{longtable}
+output: 
+  bookdown::pdf_book:
+    toc: false
+urlcolor: brown
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, comment = "#", message = FALSE, warning = FALSE, fig.pos = 'H')
+```
+
+```{r loadPackages}
+options(digits = 4)
+set.seed(42)
+# Load packages
+library(stringr)
+library(ggplot2)
+library(RColorBrewer)
+library(reshape2)
+library(tidyr)
+library(corrplot)
+library(gridExtra)
+library(car)
+library(knitr)
+library(kableExtra)
+library(MASS)
+```
+
+```{r loadData}
+# Load data
+data_arabica <- read.csv("arabica_data_cleaned.csv")
+data_robusta <- read.csv("robusta_data_cleaned.csv")
+data_merged <- read.csv("merged_data_cleaned.csv")
+# colour palette
+colours <- brewer.pal(n = 10, name = "BrBG")
+```
+
+```{r cleanData}
+# Time for further cleaning -> get rid of owner, farm name, lot number, mill, ICO number, company,
+#                              altitude, region, producer, number of bags, bag weight, in country partner,
+#                              harvest year, grading date, owner.1, variety, moisture, category one defects,
+#                              quakers, colour, category two defects expiration, certification body,
+#                              certification address, certification contact, unit of measurement,
+#                              altitude low meters, altitude high meters, altitude mean meters
+coffee_rating <- data_merged[, -c(3, c(5:15), 16, 17, 18, 19, c(32:44))]
+# remove rows with missing data (seems to be in processing method)
+coffee_rating <- coffee_rating[!(coffee_rating$Processing.Method == ""),]
+# rename cupper.points to overall & correct spelling for flavour
+names(coffee_rating)[names(coffee_rating) == 'Cupper.Points'] <- 'Overall'
+names(coffee_rating)[names(coffee_rating) == 'Flavor'] <- 'Flavour'
+# change/adjust country names 
+coffee_rating$Country.of.Origin <- str_replace(coffee_rating$Country.of.Origin,
+                                               "Tanzania, United Republic Of", "Tanzania")
+coffee_rating$Country.of.Origin <- str_replace(coffee_rating$Country.of.Origin,
+                                               "United States \\(Hawaii\\)", "Hawaii")
+coffee_rating$Country.of.Origin <- str_replace(coffee_rating$Country.of.Origin,
+                                               "United States \\(Puerto Rico\\)", "Puerto Rico")
+# simplify terms for processing method (maybe wet, dry, pulped natural, semi-pulped, other??)
+coffee_rating$Processing.Method <- str_replace(coffee_rating$Processing.Method, "Natural / Dry", "Dry")
+coffee_rating$Processing.Method <- str_replace(coffee_rating$Processing.Method, "Washed / Wet", "Wet")
+coffee_rating$Processing.Method <- str_replace(coffee_rating$Processing.Method, "Pulped natural / honey",
+                                               "Pulped natural")
+coffee_rating$Processing.Method <- str_replace(coffee_rating$Processing.Method, "Semi-washed / Semi-pulped",
+                                               "Semi-pulped")
+```
+
+\newpage
+
+# Abstract
+Coffee beans of different species are grown and harvested in various countries around the world. Each type has a distinct portfolio with various features of taste. People often have different opinions of the strength of these features in their coffee. The purpose of the following research is to see the effect of different features on the quality of the coffee, and whether being from a specific place, species, or processing method has an impact on the taste.
+
+# Introduction
+## Data Description
+The datasets were gathered from the [Coffee Quality Institute (CQI)](https://database.coffeeinstitute.org) in January 2018. They contain reviews from specialized reviewers for two types of coffee. There are three CSV files:
+
+  - An Arabica coffee pre-cleaned dataset
+  - A Robusta coffee pre-cleaned dataset
+  - A dataset constructed by merging the above datasets
+  
+Each dataset contains a variety of features that fall into three categories: quality measures, bean metadata, and farm metadata. 
+
+The following analysis uses the merged dataset, including some further cleaning that:
+
+  - only includes relevant columns 
+  - removes rows that were missing a _Processing Method_
+  - adjusts column names where necessary
+  - simplifies some of the country names (i.e. change "United States (Hawaii)" to "Hawaii")
+  - simplifies the names of the _Processing Methods_ (i.e. change "Natural / Dry" to "Dry")
+
+## Data Source 
+There is a [GitHub repository](https://github.com/jldbc/coffee-quality-database) containing the data, but it is also found on _Kaggle_ at this link: [Coffee Quality Data](https://www.kaggle.com/datasets/volpatto/coffee-quality-database-from-cqi?select=merged_data_cleaned.csv). The data was scraped directly from the [Coffee Quality Institute](https://database.coffeeinstitute.org) website. 
+
+## Exploratory Analysis
+The following data visualizations allow us to get an idea of what values our coffee ratings take on, and if there are any interactions between our numerical and categorical variables. 
+
+It is important to note that the ratings for _Aroma_, _Flavour_, _Aftertaste_, _Acidity_, _Body_, _Balance_, _Uniformity_, _Clean Cup_, _Sweetness_, and _Overall_ are summed to get the _Total Cup Points_ for each observation. We will refer to these ratings as the set of __quality measures__ for the remainder of the analysis. 
+
+```{r scatter12, fig.align='center', fig.cap="Dual Scatterplot of Total Cup Points"}
+# Dual scatterplot
+p1 <- ggplot(data = coffee_rating, aes(x = X, y = Total.Cup.Points, col = Species)) +
+  geom_point() +
+  scale_color_manual(values = c(colours[1], colours[4])) +
+  labs(title = "Scatterplot of Total Cup Points by \n Customer sorted by Species",
+       x ="Observation # (Customer)", y = "Total Cup Points") +
+  theme_bw()
+p2 <- ggplot(data = coffee_rating, aes(x = X, y = Total.Cup.Points, col = Processing.Method)) +
+  geom_point() +
+  scale_color_manual(values = colours, name = "Method") +
+  labs(title = "Scatterplot of Total Cup \n Points by Customer sorted \n by Processing Method",
+       x ="Observation # (Customer)", y = "Total Cup Points") +
+  theme_bw()
+grid.arrange(p1, p2, ncol = 2, padding = 2)
+```
+In figure \@ref(fig:scatter12), specifically in the plot on the left, we can see that there are far more ratings for Arabica coffee than Robusta coffee. While it is a bit difficult to identify each observation's colour in the plot on the right, the majority of the points correspond to the "Wet" _Processing Method_, and the next most being "Dry". 
+
+```{r scatter3, fig.align='center', fig.cap="Scatterplot of quality measure ratings"}
+# Scatterplot - species
+coffee_rating_mod <- melt(coffee_rating, id.vars = 'X', measure.vars = c('Aroma', 'Flavour', 'Aftertaste',
+                                                                       'Acidity', 'Body', 'Balance', 'Uniformity',
+                                                                       'Clean.Cup', 'Sweetness', 'Overall'))
+coffee_rating_mod <- cbind(coffee_rating_mod, coffee_rating$Processing.Method, coffee_rating$Species)
+names(coffee_rating_mod)[names(coffee_rating_mod) == 'coffee_rating$Processing.Method'] <- 'Processing.Method'
+names(coffee_rating_mod)[names(coffee_rating_mod) == 'coffee_rating$Species'] <- 'Species'
+
+ggplot(data = coffee_rating_mod, aes(x = variable, y = value, col = Species)) +
+  geom_point() +
+  scale_color_manual(values = c(colours[1], colours[4])) + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust=1)) +
+  labs(title = "Plot of Rating by Quality Measure - Species", x ="Quality Measure", y = "Rating", fill = "")
+```
+Figure \@ref(fig:scatter3) breaks down the graph on the left hand side of figure \@ref(fig:scatter12) to see each quality measure. We can see that the ratings of the quality measures for the Robusta _Species_ tend to be around the aspect's mean, while the ratings for the Arabica _Species_ are more spread out. 
+
+```{r scatter4, fig.align='center', fig.cap="Scatterplot of Quality Measure ratings"}
+# Scatterplot - processing method
+ggplot(data = coffee_rating_mod, aes(x = variable, y = value, col = Processing.Method)) +
+  geom_point() +
+  scale_color_manual(values = colours) + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust=1)) +
+  labs(title = "Plot of Rating by Quality Measure - Processing Method", x ="Quality Measure", y = "Rating", fill = "")
+```
+Figure \@ref(fig:scatter4) breaks down the graph on the right hand side of figure \@ref(fig:scatter12) to see each quality measure. We can see that there is a decent distribution of colour for each quality measure. Since one row of our dataset has an entry for each quality measure, we know that there is at least one value for each _Processing Method_ for each of our aspects. It is evident that some of the ratings for Wet could be considered outliers as they fall under five.
+
+```{r hists, fig.align='center', fig.cap="Histograms of Quality Measures", fig.height=8}
+# Histograms
+h1 <- ggplot(coffee_rating, aes(x = Aroma)) +
+  geom_histogram(aes(y = after_stat(density)), colour = "black", fill = "chocolate4", bins = 20) +
+  geom_vline(xintercept = mean(coffee_rating$Aroma), colour = "burlywood1") + 
+  geom_density(colour = "black", fill = "bisque3", alpha = 0.5) +
+  xlim(0,10) + ylim(0, 2) + theme_bw()
+h2 <- ggplot(coffee_rating, aes(x = Flavour)) +
+  geom_histogram(aes(y = after_stat(density)), colour = "black", fill = "chocolate4", bins = 20) +
+  geom_vline(xintercept = mean(coffee_rating$Flavour), colour = "burlywood1") + 
+  geom_density(colour = "black", fill = "bisque3", alpha = 0.5) +
+  xlim(0,10) + ylim(0, 2) + theme_bw()
+h3 <- ggplot(coffee_rating, aes(x = Aftertaste)) +
+  geom_histogram(aes(y = after_stat(density)), colour = "black", fill = "chocolate4", bins = 20) +
+  geom_vline(xintercept = mean(coffee_rating$Aftertaste), colour = "burlywood1") + 
+  geom_density(colour = "black", fill = "bisque3", alpha = 0.5) +
+  xlim(0,10) + ylim(0, 2) + theme_bw()
+h4 <- ggplot(coffee_rating, aes(x = Acidity)) +
+  geom_histogram(aes(y = after_stat(density)), colour = "black", fill = "chocolate4", bins = 20) +
+  geom_vline(xintercept = mean(coffee_rating$Acidity), colour = "burlywood1") + 
+  geom_density(colour = "black", fill = "bisque3", alpha = 0.5) +
+  xlim(0,10) + ylim(0, 2) + theme_bw()
+h5 <- ggplot(coffee_rating, aes(x = Body)) +
+  geom_histogram(aes(y = after_stat(density)), colour = "black", fill = "chocolate4", bins = 20) +
+  geom_vline(xintercept = mean(coffee_rating$Body), colour = "burlywood1") + 
+  geom_density(colour = "black", fill = "bisque3", alpha = 0.5) +
+  xlim(0,10) + ylim(0, 2) + theme_bw()
+h6 <- ggplot(coffee_rating, aes(x = Balance)) +
+  geom_histogram(aes(y = after_stat(density)), colour = "black", fill = "chocolate4", bins = 20) +
+  geom_vline(xintercept = mean(coffee_rating$Balance), colour = "burlywood1") + 
+  geom_density(colour = "black", fill = "bisque3", alpha = 0.5) +
+  xlim(0,10) + ylim(0, 2) + theme_bw()
+h7 <- ggplot(coffee_rating, aes(x = Uniformity)) +
+  geom_histogram(aes(y = after_stat(density)), colour = "black", fill = "chocolate4", bins = 20) +
+  geom_vline(xintercept = mean(coffee_rating$Uniformity), colour = "burlywood1") + 
+  geom_density(colour = "black", fill = "bisque3", alpha = 0.5) +
+  xlim(0,10) + ylim(0, 2) + theme_bw()
+h8 <- ggplot(coffee_rating, aes(x = Clean.Cup)) +
+  geom_histogram(aes(y = after_stat(density)), colour = "black", fill = "chocolate4", bins = 20) +
+  geom_vline(xintercept = mean(coffee_rating$Clean.Cup), colour = "burlywood1") + 
+  geom_density(colour = "black", fill = "bisque3", alpha = 0.5) +
+  xlim(0,10) + ylim(0, 2) + theme_bw()
+h9 <- ggplot(coffee_rating, aes(x = Sweetness)) +
+  geom_histogram(aes(y = after_stat(density)), colour = "black", fill = "chocolate4", bins = 20) +
+  geom_vline(xintercept = mean(coffee_rating$Sweetness), colour = "burlywood1") + 
+  geom_density(colour = "black", fill = "bisque3", alpha = 0.5) +
+  xlim(0,10) + ylim(0, 2) + theme_bw()
+h10 <- ggplot(coffee_rating, aes(x = Overall)) +
+  geom_histogram(aes(y = after_stat(density)), colour = "black", fill = "chocolate4", bins = 20) +
+  geom_vline(xintercept = mean(coffee_rating$Overall), colour = "burlywood1") + 
+  geom_density(colour = "black", fill = "bisque3", alpha = 0.5) +
+  xlim(0,10) + ylim(0, 2) + theme_bw()
+grid.arrange(h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, ncol = 2, nrow =5,
+             top = "Histograms of the Distribution of Ratings for various Quality Measures")
+```
+In figure \@ref(fig:hists), we can see the true distributions of the ratings for all quality measures. The vertical line in each histogram is the mean. The mean for _Aroma_, _Flavour_, _Aftertaste_, _Acidity_, _Body_, _Balance_, and _Overall_ seem to be around 7.5, and their distributions appear to be normal. The mean for _Uniformity_, _Clean Cup_, and _Sweetness_ seem very close to 10, and their distributions appear to be severely left skewed. It will be interesting to perform two tests to see if those two groups of aspects have similar means within them.
+
+## Purpose of Further Statistical Analysis
+The main goals of the following statistical analysis is to identify how each variable in our dataset is structured, and how variables are related to or influence one another. In figure \@ref(fig:scatter12), it was evident that the _Total Cup Points_ had a bit of variation depending on the _Species_ or _Processing Method_. Further analysis will be conducted to see if we can predict the _Total Cup Points_ based on these two factors. In figures \@ref(fig:scatter3) and \@ref(fig:scatter4), it was evident that there is some clustering in _Species_ or _Processing Method_ for their ratings of each quality measure. Further analysis will be conducted to see if we can classify the _Species_ or _Processing Method_ based on the ratings for each quality measure. Lastly, an analysis will be conducted to see if the means for the various quality measures are equal, as the histograms in figure \@ref(fig:hists) suggest such a possibility. 
+
+# Methods
+For consistency, any tests or intervals will be constructed at a __95%__ level of significance. 
+
+## Check Normality
+First, we check to see if the main numerical columns we will be working with approximately follow a normal distribution. This is to ensure that any further assumptions of normality for tests or models are fulfilled. This also determines if the mean is applicable as a representative value of our data or not. 
+
+## Inference on $\mu$
+### Tests of Means
+As seen in figure \@ref(fig:hists), the quality measures could be split into two groups where they appeared to have similar medians within. We will perform a hypothesis test to determine whether or not there is a significant difference in their means. Our assumption is that each column of our dataset follows a multivariate normal distribution with different means and the same covariance matrix.
+
+### Simultaneous Confidence Intervals
+Once performing tests of means for the ratings of quality measures, we will create multiple confidence intervals (original, Bonferroni, Scheffé) and compare which one is more precise. Our assumptions are the same as for the test of means.
+
+## Modeling
+### Univariate Linear Regression
+Using two categorical variables (_Species_ and _Processing Method_) coded as indicator variables, we will see if they have an effect on the _Total Cup Points_. Then, we will see which confidence intervals for the coefficients contain zero. Our assumption to create the confidence interval is that we have normality. 
+
+## Classification
+Lastly, we will implement linear discriminant analysis (LDA) twice - once using the _Processing Method_ as the labels and once using the _Species_ as the labels - with the various quality measures as our data. Our assumptions are that the sample measurements are independent, the distributions of the quality measures follow a normal distribution, and the covariance matrix is identical across each class (or type of _Processing Method_ or _Species_). 
+
+# Results
+First, we check to see that our variables approximately follow a normal distribution using __qqPlots__. 
+```{r normalityPlots, fig.align='center', fig.cap="qqPlots to Check Normality"}
+# Check normality
+name <- colnames(coffee_rating[,5:15])
+op <- par(mfrow = c(6,2), oma = c(5,4,0,0), mar = c(1,1,2,2))
+for (i in 1:11){
+  qqPlot(coffee_rating[,i+4], main = name[i], id = F, col = "chocolate4", col.lines = "bisque3")
+}
+title(xlab = "Normal quantiles", ylab = "Ratings", outer = TRUE, line = 3)
+par(op)
+```
+According to figure \@ref(fig:normalityPlots), the ratings for _Aroma_, _Flavour_, _Aftertaste_, _Acidity_, _Body_, _Balance_, _Overall_, and _Total Cup Points_ all seem to fall within the shaded region along their respective lines, so we can assume they follow a normal distribution. _Uniformity_, _Clean Cup_, and _Sweetness_ have a decent amount of ratings creating a left tail, so normality is a little questionable. 
+
+Our first test of means will be between _Aroma_, _Flavour_, _Aftertaste_, _Acidity_, _Body_, _Balance_, and _Overall_ as they all seemed to have the same median in our boxplot. Let $\mu_1$ be the mean rating for _Aroma_, $\mu_2$ be the mean rating for _Flavour_, $\mu_3$ be the mean rating for _Aftertaste_, $\mu_4$ be the mean rating for _Acidity_, $\mu_5$ be the mean rating for _Body_, $\mu_6$ be the mean rating for _Balance_, and $\mu_7$ be the mean rating for _Overall_. 
+
+__Hypothesis:__ $H_0: \mu_1 = \mu_2 = \mu_3 = \mu_4 = \mu_5 = \mu_6 = \mu_7$ vs $H_1:$ otherwise
+
+__Name of Approach:__ Likelihood Ratio Test (LRT)
+
+__Level of Significance:__ $\alpha = 0.05$
+```{r testofmeans1}
+# First test of means
+tm_1 <- as.matrix(coffee_rating[, c(5:10, 14)])
+n1 <- nrow(tm_1)
+p1 <- ncol(tm_1)
+mu_hat1 <- colMeans(tm_1)
+nu_0 <- as.matrix(rep(0, p1 - 1))
+A1 = cbind(rep(1, p1 - 1), -diag(p1 - 1))
+test.stat1 <- drop(n1 * t(A1 %*% mu_hat1 - nu_0) %*% solve(A1 %*% cov(tm_1) %*% t(A1)) %*% (A1 %*% mu_hat1 - nu_0))
+cri.point1 = (n1 - 1)*(p1 - 1)/(n1 - p1 + 1)*qf(.95, p1 - 1, n1 - p1 + 1)
+p.val1 = 1 - pf((n1- p1 + 1)/(n1 - 1)/(p1 - 1)*test.stat1, p1 - 1, n1 - p1 + 1)
+```
+__Test Statistic:__ 806.5755
+
+__Rejection Region:__ $[12.6925, \infty)$
+
+__P-value:__ $\approx 0$
+
+__Conclusion:__ As our p-value $\approx 0 \leq 0.05 = \alpha$, we reject $H_0$. Conclude that there is sufficient evidence that the average rating across _Aroma_, _Flavour_, _Aftertaste_, _Acidity_, _Body_, _Balance_, and _Overall_ does vary. 
+
+\newpage
+
+Below are simultaneous confidence intervals for the $\mu_1$ to $\mu_7$ as defined for the above test. 
+```{r confint1}
+# Confidence intervals for first test of means
+# No correction
+alpha <- .05
+AI1 = diag(nrow = p1)
+sample_cov1 <- cov(tm_1)
+c1 = qt(1 - alpha/2, n1 - 1)
+tm1_ogint <- cbind(
+  AI1 %*% mu_hat1 - c1 * sqrt(diag(AI1 %*% sample_cov1 %*% t(AI1))/n1),
+  AI1 %*% mu_hat1 + c1 * sqrt(diag(AI1 %*% sample_cov1 %*% t(AI1))/n1)
+)
+row.names(tm1_ogint) <- c("Aroma", "Flavour", "Aftertaste", "Acidity", "Body", "Balance", "Overall")
+colnames(tm1_ogint) <- c("Orig L", "Orig U")
+# Bonferroni
+m1 = nrow(AI1)
+c2 = qt(1-alpha/2/m1, n1-1)
+tm1_bfint <- cbind(
+  AI1 %*% mu_hat1 - c2 * sqrt(diag(AI1 %*% sample_cov1 %*% t(AI1))/n1),
+  AI1 %*% mu_hat1 + c2 * sqrt(diag(AI1 %*% sample_cov1 %*% t(AI1))/n1)
+)
+row.names(tm1_bfint) <- c("Aroma", "Flavour", "Aftertaste", "Acidity", "Body", "Balance", "Overall")
+colnames(tm1_bfint) <- c("Bonf L", "Bonf U")
+# Scheffe
+c3 = sqrt(p1*(n1 - 1)/(n1 - p1) * qf(1-alpha, p1, n1 - p1))
+tm1_scint <- cbind(
+  AI1 %*% mu_hat1 - c3 * sqrt(diag(AI1 %*% sample_cov1 %*% t(AI1))/n1),
+  AI1 %*% mu_hat1 + c3 * sqrt(diag(AI1 %*% sample_cov1 %*% t(AI1))/n1)
+)
+row.names(tm1_scint) <- c("Aroma", "Flavour", "Aftertaste", "Acidity", "Body", "Balance", "Overall")
+colnames(tm1_scint) <- c("Sche L", "Sche U")
+```
+
+```{r tab1}
+# Display first set of confidence intervals
+confint1 <- as.data.frame(cbind(tm1_ogint, tm1_bfint, tm1_scint))
+kable(confint1, longtable = TRUE, caption = "Simultaneous Confidence Intervals for first test of means")
+```
+By looking at table \@ref(tab:tab1), we can see that the original confidence interval provides the smallest interval for each variable, and is thus the best confidence interval to use. 
+
+Our second test of means will be between _Uniformity_, _Clean Cup_, and _Sweetness_ as they all seemed to have similar distributions in our boxplot. Let $\mu_1$ be the mean rating for _Uniformity_, $\mu_2$ be the mean rating for _Clean Cup_, and $\mu_3$ be the mean rating for _Sweetness_.
+
+__Hypothesis:__ $H_0: \mu_1 = \mu_2 = \mu_3$ vs $H_1:$ otherwise
+
+__Name of Approach:__ Likelihood Ratio Test (LRT)
+
+__Level of Significance:__ $\alpha = 0.05$
+```{r testofmeans2}
+# Second test of means
+tm_2 <- as.matrix(coffee_rating[, 11:13])
+n2 <- nrow(tm_2)
+p2 <- ncol(tm_2)
+mu_hat2 <- colMeans(tm_2)
+nu_0 <- as.matrix(rep(0, p2 - 1))
+A2 = cbind(rep(1, p2 - 1), -diag(p2 - 1))
+test.stat2 <- drop(n2 * t(A2 %*% mu_hat2 - nu_0) %*% solve(A2 %*% cov(tm_2) %*% t(A2)) %*% (A2 %*% mu_hat2 - nu_0))
+cri.point2 = (n2 - 1)*(p2 - 1)/(n2 - p2 + 1)*qf(.95, p2 - 1, n2 - p2 + 1)
+p.val2 = 1 - pf((n2- p2 + 1)/(n2 - 1)/(p2 - 1)*test.stat2, p2 - 1, n2 - p2 + 1)
+```
+__Test Statistic:__ 10.5921
+
+__Rejection Region:__ $[6.0120, \infty)$
+
+__P-value:__ $0.0052$
+
+__Conclusion:__ As our p-value $= 0.0052 \leq 0.05 = \alpha$, we reject $H_0$. Conclude that there is sufficient evidence that the average rating across _Uniformity_, _Clean Cup_, and _Sweetness_ does vary. 
+
+Below are simultaneous confidence intervals for the $\mu_1$ to $\mu_3$ as defined for the above test. 
+```{r confint2}
+# Confidence intervals for second test of means
+# No correction
+AI2 = diag(nrow = p2)
+sample_cov2 <- cov(tm_2)
+c4 = qt(1 - alpha/2, n2 - 1)
+tm2_ogint <- cbind(
+  AI2 %*% mu_hat2 - c4 * sqrt(diag(AI2 %*% sample_cov2 %*% t(AI2))/n2),
+  AI2 %*% mu_hat2 + c4 * sqrt(diag(AI2 %*% sample_cov2 %*% t(AI2))/n2)
+)
+row.names(tm2_ogint) <- c("Uniformity", "Clean Cup", "Sweetness")
+colnames(tm2_ogint) <- c("Orig L", "Orig U")
+# Bonferroni
+m2 = nrow(AI2)
+c5 = qt(1-alpha/2/m2, n2-1)
+tm2_bfint <- cbind(
+  AI2 %*% mu_hat2 - c5 * sqrt(diag(AI2 %*% sample_cov2 %*% t(AI2))/n2),
+  AI2 %*% mu_hat2 + c5 * sqrt(diag(AI2 %*% sample_cov2 %*% t(AI2))/n2)
+)
+row.names(tm2_bfint) <- c("Uniformity", "Clean Cup", "Sweetness")
+colnames(tm2_bfint) <- c("Bonf L", "Bonf U")
+# Scheffe
+c6 = sqrt(p1*(n2 - 1)/(n2 - p2) * qf(1-alpha, p2, n2 - p2))
+tm2_scint <- cbind(
+  AI2 %*% mu_hat2 - c6 * sqrt(diag(AI2 %*% sample_cov2 %*% t(AI2))/n2),
+  AI2 %*% mu_hat2 + c6 * sqrt(diag(AI2 %*% sample_cov2 %*% t(AI2))/n2)
+)
+row.names(tm2_scint) <- c("Uniformity", "Clean Cup", "Sweetness")
+colnames(tm2_scint) <- c("Sche L", "Sche U")
+```
+
+```{r tab2}
+# Display second set of confidence intervals
+confint2 <- as.data.frame(cbind(tm2_ogint, tm2_bfint, tm2_scint))
+kable(confint2, longtable = TRUE, caption = "Simultaneous Confidence Intervals for first test of means")
+```
+By looking at table \@ref(tab:tab2), we can see that once again, the original confidence interval gives the smallest interval for each variable, as is thus the best confidence interval to use. 
+
+Now, we will fit a linear regression model to predict the _Total Cup Points_ using the _Species_ and _Processing Method_. Since our model will use categorical variables, each level for each variable will be coded as indicator variables. Our reference group for _Species_ is Arabica, and our reference group for _Processing Method_ is Dry.
+```{r linModel}
+# Linear regression model
+cr_lm <- lm(Total.Cup.Points ~ Species + Processing.Method, data = coffee_rating)
+summary(cr_lm)
+```
+For simplicity, the specific names for the types of _Species_ and _Processing Methods_ are abbreviated for our model. Our regression equation is: $$\hat{y} = 82.314 - 2.530*SR - 1.035*PMO + 0.494*PMPN + 0.320*PMSP - 0.337*PMW$$
+Since our model has categorical variables (using indicator variables for the different levels), we can separate it into smaller models.
+
+  - Mean rating for Arabica species and Dry processing method: $\hat{y}_{AD} = 82.314$
+
+  - Mean rating for Arabica species and Other processing method: $\hat{y}_{AO} = 82.314 - 1.035 = 81.279$
+
+  - Mean rating for Arabica species and Pulped natural processing method: $\hat{y}_{APN} = 82.314 + 0.494 = 82.808$
+
+  - Mean rating for Arabica species and Semi-pulped processing method: $\hat{y}_{ASP} = 82.314 + 0.320 = 82.634$
+
+  - Mean rating for Arabica species and Wet processing method: $\hat{y}_{AW} = 82.314 - 0.337 = 81.977$
+
+  - Mean rating for Robusta species and Dry processing method: $\hat{y}_{RD} = 82.314 - 2.530 = 79.784$
+
+  - Mean rating for Robusta species and Other processing method: $\hat{y}_{RO} = 82.314 - 2.530 - 1.035 = 78.749$
+
+  - Mean rating for Robusta species and Pulped natural processing method: $\hat{y}_{RPN} = 82.314 - 2.530 + 0.494 = 80.278$
+
+  - Mean rating for Robusta species and Semi-pulped processing method: $\hat{y}_{RSP} = 82.314 - 2.530 + 0.320 = 80.104$
+
+  - Mean rating for Robusta species and Wet processing method: $\hat{y}_{RW} = 82.314 - 2.530 - 0.337 = 79.448$
+
+If the _Species_ is Robusta, it has a large negative impact on the mean rating. This might be because there are few ratings in the dataset that fall in this category. If the _Processing Method_ is Other, it also has a decent negative impact on the mean rating. Two _Processing Methods_ have a positive impact on the mean rating. The combination that gives the highest mean rating is a _Species_ of Arabica and a _Processing Method_ of Pulped natural. 
+
+```{r lmConfint}
+# Confidence interval for linear regression
+kable(confint(cr_lm))
+```
+By looking at the above confidence intervals, four of them contain zero and it is all for the _Processing Methods_. Since those intervals contain zero, it is unclear as to whether or not there is a treatment effect. This lines up with the fact that the p-values for those coefficients (found in the linear regression output above) were not less than $0.05$. 
+
+Our first classification task is to see if we can predict the _Processing Method_ based on the ratings for the ten quality measures. From our linear discriminant analysis (LDA) model, we can see the proportion of each group in our training set.
+```{r class1}
+# First classification
+pick_pm <- sample.int(nrow(coffee_rating), size = floor(nrow(coffee_rating)/3))
+train_pm <- coffee_rating[-pick_pm, 4:14]
+Xtrain_pm <- train_pm[, !(names(train_pm) %in% c("Processing.Method"))]
+Ytrain_pm <- train_pm$Processing.Method
+test_pm <- coffee_rating[pick_pm, 4:14]
+Xtest_pm <- test_pm[, !(names(test_pm) %in% c("Processing.Method"))]
+Ytest_pm = test_pm[, names(test_pm) %in% c("Processing.Method")]
+
+LDA_pm <- lda(Xtrain_pm, Ytrain_pm, method = "moment")
+LDA_pm$prior
+```
+The majority of ratings in our training set are of the Wet _Processing Method_. Then, we can look at the proportion of trace of our model, which is the variance explained by each linear discriminant function. 
+```{r class1prop}
+# Proportion of trace for first LDA
+(prop_of_trace_pm <- proportions(LDA_pm$svd^2))
+```
+The first linear discriminant function explains almost 70% of the variance, our second explains 17%, and the rest of the variance is between the last two discriminant functions. Lastly, we can use our model to perform some predictions on our test set, and calculate the accuracy.
+```{r class1pred}
+# Predictions for first LDA
+predicted_pm <- predict(LDA_pm, Xtest_pm)
+mean(predicted_pm$class == Ytest_pm)
+```
+Thus, this LDA model correctly identifies the _Processing Method_ based on the quality measure ratings 70.95% of the time.
+
+Our second classification task is to see if we can predict the _Species_ based on the ratings for the ten quality measures. From our LDA model, we can see the proportion of each group in our training set.
+```{r class2}
+# Second classification
+pick_s <- sample.int(nrow(coffee_rating), size = floor(nrow(coffee_rating)/3))
+train_s <- coffee_rating[-pick_s, c(2, 5:14)]
+Xtrain_s <- train_s[, !(names(train_s) %in% c("Species"))]
+Ytrain_s <- train_s$Species
+test_s <- coffee_rating[pick_s, c(2, 5:14)]
+Xtest_s <- test_s[, !(names(test_s) %in% c("Species"))]
+Ytest_s = test_s[, names(test_s) %in% c("Species")]
+
+LDA_s <- lda(Xtrain_s, Ytrain_s, method = "moment")
+LDA_s$prior
+```
+The majority of ratings in our training set are of the Arabica _Species_. Then, we can look at the proportion of trace of our model, which is the variance explained by each linear discriminant function. 
+```{r class2prop}
+# Proportion of trace for second LDA
+(prop_of_trace_s <- proportions(LDA_s$svd^2))
+```
+The only linear discriminant function explains all of the variance. Lastly, we can use our model to perform some predictions on our test set, and calculate the accuracy.
+```{r class2pred}
+# Predictions for second LDA
+predicted_s <- predict(LDA_s, Xtest_s)
+mean(predicted_s$class == Ytest_s)
+```
+Thus, this LDA model correctly identifies the _Species_ based on the quality measure ratings 98.71% of the time.
+
+# Conclusion
+While one person's opinion on coffee can differ from the next, it is interesting to see if we can find any patterns among ratings. Our exploratory analysis gave us some insight into the potential relationships between the different aspects of coffee, the type of coffee, and how the coffee was processed. We proceeded with utilizing various methods to take a deep dive in.
+
+The majority of our quality measures follow a normal distribution, with only three of them having a left tail, leaving their normality questionable. For those that do follow a normal distribution, their mean can be used as a representative value. 
+
+Our tests of means revealed two rejections of our null hypotheses, indicating that at least one of the means in each group was not equal to the others. This was surprising as figure \@ref(fig:hists) had strong indications of such an effect. The tightest confidence intervals for both tests were the ones with no corrections. 
+
+Our linear regression analysis revealed that the Robusta _Species_ and the Other _Processing Method_ have a large negative impact on the mean rating. The coffee with the highest mean rating is an Arabica _Species_ using a Pulped natural _Processing Method_. The coefficient confidence intervals revealed some uncertainty in treatment effectiveness. 
+
+Both of the linear discriminant analysis (LDA) models performed well. The model that used the _Processing Method_ as the labels had an accuracy of 70%, and the model that used the _Species_ as the labels had an accuracy of 98%. 
+
+As with any data analysis, there are limitations. One limitation is that there are unequal quantities of ratings when separated by _Species_ and _Processing Method_. In particular, 99% of _Species_ is Arabica, and 70% of _Processing Method_ is Wet. This imbalance contributed to the performance of LDA, and led to the inability to implement quadratic discriminant analysis (QDA) as there wasn't enough of each type in the training and testing sets after splitting the data. A concern is that the dataset is rather small (~1200) and since the ratings are strictly opinion-based, it is unclear whether or not the same person rated multiple cups of coffee. If similar collection of this data is to be completed in the future, it would be beneficial to ensure that each type of _Species_ and _Processing Method_ are equally represented in the sample, as well as having the same people taste multiple kinds of coffee. This will provide more accurate data to use for modelling and classification.
+
+\newpage
+
+# Appendix
+Below is the R code used to complete the above analysis. 
+```{r loadPackages, echo=TRUE, eval=FALSE}
+```
+```{r loadData, echo=TRUE, eval=FALSE}
+```
+```{r cleanData, echo=TRUE, eval=FALSE}
+```
+```{r scatter12, echo=TRUE, eval=FALSE}
+```
+```{r scatter3, echo=TRUE, eval=FALSE}
+```
+```{r scatter4, echo=TRUE, eval=FALSE}
+```
+```{r hists, echo=TRUE, eval=FALSE}
+```
+```{r normalityPlots, echo=TRUE, eval=FALSE}
+```
+```{r testofmeans1, echo=TRUE, eval=FALSE}
+```
+```{r confint1, echo=TRUE, eval=FALSE}
+```
+```{r tab1, echo=TRUE, eval=FALSE}
+```
+```{r testofmeans2, echo=TRUE, eval=FALSE}
+```
+```{r confint2, echo=TRUE, eval=FALSE}
+```
+```{r tab2, echo=TRUE, eval=FALSE}
+```
+```{r linModel, echo=TRUE, eval=FALSE}
+```
+```{r lmConfint, echo=TRUE, eval=FALSE}
+```
+```{r class1, echo=TRUE, eval=FALSE}
+```
+```{r class1prop, echo=TRUE, eval=FALSE}
+```
+```{r class1pred, echo=TRUE, eval=FALSE}
+```
+```{r class2, echo=TRUE, eval=FALSE}
+```
+```{r class2prop, echo=TRUE, eval=FALSE}
+```
+```{r class2pred, echo=TRUE, eval=FALSE}
+```
